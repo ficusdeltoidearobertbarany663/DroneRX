@@ -1,15 +1,19 @@
 /*
- * drone_page.h — Page HTML V3.3 en PROGMEM
+ * drone_page.h — Page HTML V3.5 en PROGMEM
+ *
+ * V3.5 :
+ *   - USB data remplacé par BLE (Web Bluetooth)
+ *   - SSID/pwd drone.local, mDNS, DHCP maison
+ *   - Tabs Info/Meteo/Drones mutuellement exclusifs
+ *   - ADS-B cerclage conditionnel
+ *   - Scan: DETECTION 1-14, CLASSIC 1,6,11, TRACKING canaux actifs
+ *
+ * V3.4 :
+ *   - Fix ADS-B bouton invisible sur mobile (header flex-wrap)
  *
  * V3.3 :
  *   - Tag "myself" : auto (position GPS) + manuel (1er clic)
  *   - Icone jaune distincte + badge MY dans la liste
- *
- * Corrections V3.2 :
- *   - Bouton "Sauvegarder page" pour usage local (file://)
- *   - Bouton USB caché si contexte non sécurisé (http://)
- *   - Message explicatif pour guider l'utilisateur
- *   - Clear drones à la déconnexion
  */
 
 #ifndef DRONE_PAGE_H
@@ -20,7 +24,7 @@ const char PAGE_HTML[] PROGMEM = R"rawpage(<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
-<title>AH &amp; EPERRET — Drone RX V3.3</title>
+<title>AH &amp; EPERRET — Drone RX V3.5</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Courier New',monospace;background:#0a0e14;color:#c8d0da;height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
@@ -32,7 +36,7 @@ body{font-family:'Courier New',monospace;background:#0a0e14;color:#c8d0da;height
 .pb-FR{color:#4fc3f7;border-color:#4fc3f7}.pb-ODID{color:#66bb6a;border-color:#66bb6a}
 .pb-DJI{color:#ffa726;border-color:#ffa726}.pb-PAR{color:#ce93d8;border-color:#ce93d8}
 .dot{width:8px;height:8px;border-radius:50%;background:#555;transition:background .3s}
-.dot.usb{background:#4fc3f7;box-shadow:0 0 6px #4fc3f7}.dot.ws{background:#66bb6a;box-shadow:0 0 6px #66bb6a}
+.dot.ble{background:#4fc3f7;box-shadow:0 0 6px #4fc3f7}.dot.ws{background:#66bb6a;box-shadow:0 0 6px #66bb6a}
 .dot.off{background:#ef5350;box-shadow:0 0 4px #ef5350}
 #status{font-size:10px;color:#778}
 button{background:#1a2533;color:#4fc3f7;border:1px solid #2a3a4d;padding:4px 10px;font-family:inherit;font-size:11px;cursor:pointer;border-radius:3px}
@@ -85,9 +89,12 @@ button.meteo:hover{background:#2a3a2a;border-color:#66bb6a}
 #btabs button{flex:1;background:none;border:none;border-bottom:2px solid transparent;color:#556;padding:6px 4px;font-size:10px;font-family:inherit;text-transform:uppercase;letter-spacing:1px}
 #btabs button.active{color:#4fc3f7;border-bottom-color:#4fc3f7}
 @media(max-width:700px){
+  #header{flex-wrap:wrap}
   #header h1{font-size:10px;letter-spacing:0}
   .proto-counters{gap:3px}
   .pb{font-size:9px;padding:1px 3px}
+  .hdr-right{flex-wrap:wrap;gap:3px;justify-content:flex-end}
+  #status{display:none}
   #bottom{flex-direction:column;height:auto;max-height:50vh}
   #btabs{display:flex}
   #connpanel{width:100%;border-right:none;border-bottom:1px solid #1e2a38;padding:6px}
@@ -125,7 +132,7 @@ button.meteo:hover{background:#2a3a2a;border-color:#66bb6a}
     <div class="dot" id="dot"></div>
     <span id="status">Deconnecte</span>
     <button onclick="toggleSound()" id="btnSnd" title="Son">&#128264;</button>
-    <button onclick="toggleADSB()" id="btnADSB" style="color:#26c6da;border-color:#26c6da">ADS-B</button>
+    <button onclick="toggleADSB()" id="btnADSB" style="color:#26c6da">ADS-B</button>
     <button onclick="startSim()">Simu</button>
     <button onclick="stopAll()" id="btnStop" style="display:none">Stop</button>
   </div>
@@ -144,24 +151,23 @@ button.meteo:hover{background:#2a3a2a;border-color:#66bb6a}
     </div>
     <div id="connpanel" class="bpanel active">
       <label>Connexion</label>
-      <div class="conn-btns" id="usbZone" style="display:none">
-        <button onclick="connectUSB()" id="btnUSB">USB Serial</button>
-        <button onclick="disconnUSB()" id="btnDUSB" style="display:none">Deco USB</button>
+      <div class="conn-btns">
+        <button onclick="connectBLE()" id="btnBLE">BLE Connect</button>
+        <button onclick="disconnBLE()" id="btnDBLE" style="display:none">Deco BLE</button>
       </div>
       <div class="conn-btns">
         <button onclick="connectWS()" id="btnWS">WiFi WS</button>
         <button onclick="disconnWS()" id="btnDWS" style="display:none">Deco WS</button>
       </div>
       <div class="conn-info" id="connInfo">Aucune connexion</div>
-      <div class="hint" id="usbHint"></div>
       <label style="margin-top:2px">WiFi Board</label>
-      <div class="conn-info">SSID: <b style="color:#4fc3f7">DroneRX</b></div>
-      <div class="conn-info">Pass: <b style="color:#4fc3f7">dronesniff</b></div>
-      <div class="conn-info">WS: ws://192.168.4.1:81</div>
+      <div class="conn-info">SSID: <b style="color:#4fc3f7">drone.local</b></div>
+      <div class="conn-info">Pass: <b style="color:#4fc3f7">drone.local</b></div>
+      <div class="conn-info">WS: ws://drone.local:81</div>
       <div class="conn-btns" style="margin-top:3px">
         <button onclick="centerMe()">Centrer</button>
         <button class="save" onclick="savePage()">Sauver</button>
-        <button class="meteo" onclick="toggleMeteo()">Meteo</button>
+        <button class="meteo" onclick="toggleMeteoPanel()">Meteo</button>
         <button style="background:#2a2a1a;color:#ffa726;border-color:#4a3a1d" onclick="showTxConfig()">TX Config</button>
       </div>
     </div>
@@ -200,26 +206,6 @@ button.meteo:hover{background:#2a3a2a;border-color:#66bb6a}
 </div>
 <script>
 /* ═══════════════════════════════════════════════════════════
-   DETECTION CONTEXTE — USB dispo uniquement en file:// ou https
-   ═══════════════════════════════════════════════════════════ */
-var isSecure = (location.protocol==='file:'||location.protocol==='https:'||location.hostname==='localhost');
-var canUSB = isSecure && ('serial' in navigator);
-
-(function(){
-  var uz=document.getElementById('usbZone');
-  var hint=document.getElementById('usbHint');
-  if(canUSB){
-    uz.style.display='flex';
-    hint.textContent='USB Serial disponible (Chrome/Edge)';
-    hint.style.color='#4fc3f7';
-  } else if(!isSecure){
-    hint.innerHTML='Pour USB : <b>Sauvegarder</b> cette page, la rouvrir en local, connecter votre WiFi/4G, puis USB Serial.';
-  } else {
-    hint.textContent='USB Serial non disponible dans ce navigateur.';
-  }
-})();
-
-/* ═══════════════════════════════════════════════════════════
    SAUVEGARDE PAGE — telecharge le HTML complet
    ═══════════════════════════════════════════════════════════ */
 function savePage(){
@@ -230,9 +216,7 @@ function savePage(){
   a.download='DroneRX_V3.html';
   a.click();
   URL.revokeObjectURL(a.href);
-  var hint=document.getElementById('usbHint');
-  hint.innerHTML='Page sauvegardee ! Ouvrez le fichier <b>DroneRX_V3.html</b> depuis votre PC (connecte a internet), puis utilisez USB Serial.';
-  hint.style.color='#66bb6a';
+  document.getElementById('connInfo').textContent='Page sauvegardee !';
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -299,64 +283,89 @@ function centerMe(){if(map)map.setView([myLat,myLon],15);}
 var COLORS=['#4fc3f7','#66bb6a','#ffa726','#ef5350','#ce93d8','#26c6da','#ff7043','#ffee58'];
 var drones={},colorIdx=0,selId=null,myselfId=null;
 var protoCounts={FR:0,ODID:0,DJI:0,PAR:0};
-var port=null,reader=null,ws=null,simIv=null;
-var usbBuf='',heartbeatIv=null,gpsIv=null;
+var ws=null,simIv=null;
+var bleDevice=null,bleTx=null,bleRx=null,bleBuf='';
 var MYSELF_TOL=0.0003;
 var myAlt=0;
 
 function distDeg(lat1,lon1,lat2,lon2){return Math.sqrt((lat1-lat2)*(lat1-lat2)+(lon1-lon2)*(lon1-lon2));}
 
 /* ═══════════════════════════════════════════════════════════
-   USB WEB SERIAL
+   BLE — Web Bluetooth (Nordic UART Service)
    ═══════════════════════════════════════════════════════════ */
-async function connectUSB(){
-  if(!canUSB){alert('USB Serial non disponible. Sauvegardez la page et ouvrez-la en local.');return;}
+var BLE_SVC='6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+var BLE_TX='6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+var BLE_RX='6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+var bleGPS=null;
+
+async function connectBLE(){
+  if(!navigator.bluetooth){document.getElementById('connInfo').textContent='Bluetooth non disponible';return;}
   try{
-    // FERMER AVANT D'OUVRIR
-    if(heartbeatIv){clearInterval(heartbeatIv);heartbeatIv=null;}
-    if(gpsIv){clearInterval(gpsIv);gpsIv=null;}
-    try{if(reader){await reader.cancel();reader=null;}}catch(e){}
-    try{if(port){await port.close();port=null;}}catch(e){}
-    usbBuf='';
-    // OUVRIR
-    port=await navigator.serial.requestPort();
-    await port.open({baudRate:115200});
-    setSt('usb','USB connecte');
-    document.getElementById('btnUSB').style.display='none';
-    document.getElementById('btnDUSB').style.display='';
-    document.getElementById('connInfo').textContent='USB Serial actif';
-    heartbeatIv=setInterval(async function(){
-      try{var w=port.writable.getWriter();await w.write(new TextEncoder().encode('HB\n'));w.releaseLock();}catch(e){}
-    },1000);
-    gpsIv=setInterval(async function(){
-      if(!map||!port)return;
-      try{var c=map.getCenter();var w=port.writable.getWriter();
-        var msg='{"g":['+c.lat.toFixed(6)+','+c.lng.toFixed(6)+','+Math.round(myAlt)+']}\n';
-        await w.write(new TextEncoder().encode(msg));w.releaseLock();
-        console.log('GPS>',msg.trim());}catch(e){}
-    },1000);
-    var decoder=new TextDecoderStream();
-    port.readable.pipeTo(decoder.writable);
-    reader=decoder.readable.getReader();
-    readUSBLoop();
-  }catch(e){setSt('off','Erreur USB: '+e.message);}
+    bleDevice=await navigator.bluetooth.requestDevice({
+      filters:[{services:[BLE_SVC]}],
+      optionalServices:[BLE_SVC]
+    });
+    bleDevice.addEventListener('gattserverdisconnected',onBLEDisconnect);
+    document.getElementById('connInfo').textContent='Connexion GATT...';
+    var server=await bleDevice.gatt.connect();
+    var svc=await server.getPrimaryService(BLE_SVC);
+    bleTx=await svc.getCharacteristic(BLE_TX);
+    bleRx=await svc.getCharacteristic(BLE_RX);
+    await bleTx.startNotifications();
+    bleTx.addEventListener('characteristicvaluechanged',onBLEData);
+    setSt('ble','BLE connecte');
+    document.getElementById('btnBLE').style.display='none';
+    document.getElementById('btnDBLE').style.display='';
+    document.getElementById('connInfo').textContent='BLE actif';
+    // Envoyer GPS toutes les 2s
+    bleGPS=setInterval(function(){
+      if(!bleDevice||!bleDevice.gatt.connected)return;
+      var lat=myLat,lon=myLon;
+      if(map){var c=map.getCenter();lat=c.lat;lon=c.lng;}
+      bleSend('{"g":['+lat.toFixed(6)+','+lon.toFixed(6)+','+Math.round(myAlt)+']}');
+    },2000);
+  }catch(e){
+    setSt('off','BLE: '+e.message);
+    document.getElementById('connInfo').textContent='Erreur BLE';
+  }
 }
-async function readUSBLoop(){
-  try{while(true){var{value,done}=await reader.read();if(done)break;
-    usbBuf+=value;var lines=usbBuf.split('\n');usbBuf=lines.pop();
-    for(var i=0;i<lines.length;i++){var l=lines[i].trim();if(l.length>0&&l[0]=='{')processMessage(l);}
-  }}catch(e){}
-  disconnUSB();
+
+function onBLEData(e){
+  var val=new TextDecoder().decode(e.target.value);
+  bleBuf+=val;
+  var lines=bleBuf.split('\n');
+  bleBuf=lines.pop();
+  for(var i=0;i<lines.length;i++){
+    var l=lines[i].trim();
+    if(l.length>0&&l[0]=='{')processMessage(l);
+  }
 }
-async function disconnUSB(){
-  if(heartbeatIv){clearInterval(heartbeatIv);heartbeatIv=null;}
-  if(gpsIv){clearInterval(gpsIv);gpsIv=null;}
-  try{if(reader){reader.cancel();reader=null;}}catch(e){}
-  try{if(port){await port.close();port=null;}}catch(e){}
-  setSt('off','USB deconnecte');
-  document.getElementById('btnUSB').style.display='';
-  document.getElementById('btnDUSB').style.display='none';
+
+function onBLEDisconnect(){
+  setSt('off','BLE deconnecte');
+  document.getElementById('btnBLE').style.display='';
+  document.getElementById('btnDBLE').style.display='none';
   document.getElementById('connInfo').textContent='Aucune connexion';
+  if(bleGPS){clearInterval(bleGPS);bleGPS=null;}
+  bleTx=null;bleRx=null;
+}
+
+async function disconnBLE(){
+  if(bleGPS){clearInterval(bleGPS);bleGPS=null;}
+  try{if(bleDevice&&bleDevice.gatt.connected)bleDevice.gatt.disconnect();}catch(e){}
+  bleDevice=null;bleTx=null;bleRx=null;
+  setSt('off','BLE deconnecte');
+  document.getElementById('btnBLE').style.display='';
+  document.getElementById('btnDBLE').style.display='none';
+  document.getElementById('connInfo').textContent='Aucune connexion';
+}
+
+async function bleSend(msg){
+  if(!bleRx||!bleDevice||!bleDevice.gatt.connected)return;
+  try{
+    var data=new TextEncoder().encode(msg);
+    await bleRx.writeValueWithoutResponse(data);
+  }catch(e){console.log('BLE TX err:',e);}
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -365,7 +374,8 @@ async function disconnUSB(){
 function connectWS(){
   // FERMER AVANT D'OUVRIR
   try{if(ws){ws.onclose=null;ws.close();ws=null;}}catch(e){}
-  try{ws=new WebSocket('ws://192.168.4.1:81');
+  try{var wsHost=(location.hostname&&location.hostname!=='')?location.hostname:'drone.local';
+    ws=new WebSocket('ws://'+wsHost+':81');
     ws.onopen=function(){setSt('ws','WebSocket connecte');
       document.getElementById('btnWS').style.display='none';
       document.getElementById('btnDWS').style.display='';
@@ -384,7 +394,7 @@ function disconnWS(){
 }
 function setSt(type,txt){
   var d=document.getElementById('dot');
-  d.className='dot'+(type=='usb'?' usb':type=='ws'?' ws':' off');
+  d.className='dot'+(type=='ble'?' ble':type=='ws'?' ws':' off');
   document.getElementById('status').textContent=txt;
 }
 
@@ -684,15 +694,20 @@ function updateDroneList(){
 /* ═══════════════════════════════════════════════════════════
    METEO — Open-Meteo (CORS OK) — Current + Vent Altitude
    ═══════════════════════════════════════════════════════════ */
-var meteoVisible=false,meteoTimer=null;
+var meteoLoaded=false,meteoTimer=null;
 
-function toggleMeteo(){
-  meteoVisible=!meteoVisible;
-  document.getElementById('decode').style.display=meteoVisible?'none':'grid';
-  document.getElementById('meteo').style.display=meteoVisible?'block':'none';
-  if(meteoVisible)fetchMeteo();
-  if(meteoVisible&&!meteoTimer)meteoTimer=setInterval(fetchMeteo,300000);
-  if(!meteoVisible&&meteoTimer){clearInterval(meteoTimer);meteoTimer=null;}
+function ensureMeteo(){
+  if(!meteoLoaded){fetchMeteo();meteoLoaded=true;}
+  if(!meteoTimer)meteoTimer=setInterval(fetchMeteo,300000);
+}
+function stopMeteoTimer(){
+  if(meteoTimer){clearInterval(meteoTimer);meteoTimer=null;}
+}
+
+// Desktop connpanel button: toggle centre entre Info ↔ Meteo
+function toggleMeteoPanel(){
+  var isMeteo=(document.getElementById('meteo').style.display==='block');
+  showTab(isMeteo?'decode':'meteo');
 }
 
 function fetchMeteo(){
@@ -845,7 +860,7 @@ function buildFR(lat,lon,alt,spd,hdg,hLat,hLon,id){
 function startSim(){
   if(simIv)return;clearDrones();
   var a1=0,a2=Math.PI,hLat=myLat+.001,hLon=myLon-.001,hLat2=myLat-.002,hLon2=myLon+.002;
-  setSt('usb','Simulation');document.getElementById('btnStop').style.display='';
+  setSt('ble','Simulation');document.getElementById('btnStop').style.display='';
   simIv=setInterval(function(){
     a1+=.08;a2+=.05;
     processMessage(JSON.stringify({p:'FR',h:buildFR(hLat+Math.sin(a1)*.003,hLon+Math.cos(a1)*.003,80+Math.round(Math.sin(a1*.5)*20),5,Math.round(((-a1*180/Math.PI)%360+360)%360),hLat,hLon,'SIM-FR-DRONE01'),r:-55,m:'AA:BB:CC:DD:EE:01',c:6}));
@@ -864,9 +879,9 @@ function stopAll(){
   clearDrones();
   if(adsbIv){clearInterval(adsbIv);adsbIv=null;adsbOn=false;}
   clearAircraft();
-  disconnWS();disconnUSB();
+  disconnWS();disconnBLE();
   setSt('off','Inactif');document.getElementById('btnStop').style.display='none';
-  document.getElementById('btnADSB').style.background='#1a2533';
+  var ab=document.getElementById('btnADSB');ab.style.background='';ab.style.borderColor='';
 }
 
 document.addEventListener('keydown',function(e){if(e.key==='Escape'){stopAll();hideTxConfig();}});
@@ -882,8 +897,8 @@ function toggleSound(){
   document.getElementById('btnSnd').innerHTML=soundOn?'&#128266;':'&#128264;';
   document.getElementById('btnSnd').style.color=soundOn?'#66bb6a':'#4fc3f7';
   if(soundOn&&!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-  // Envoyer au board
-  if(port){try{var w=port.writable.getWriter();w.write(new TextEncoder().encode('{"snd":'+(soundOn?1:0)+'}\n'));w.releaseLock();}catch(e){}}
+  // Envoyer au board via BLE
+  bleSend('{"snd":'+(soundOn?1:0)+'}');
 }
 
 function beepProximity(freqHz,durationMs){
@@ -907,18 +922,22 @@ function checkProximityBeep(dist){
 }
 
 /* ═══════════════════════════════════════════════════════════
-   ADS-B — OpenSky Network (gratuit, CORS OK depuis file://)
-   Avions dans un rayon de ~50km autour de la position
+   ADS-B — AirLabs API (CORS OK)
+   Avions dans la vue active de la carte
    ═══════════════════════════════════════════════════════════ */
 var adsbOn=false,adsbIv=null;
-var aircraft={};  // icao24 → {marker, label, data, lastSeen}
-var ADSB_RANGE=0.5; // degrés (~55km)
-var ADSB_INTERVAL=15000; // 15s (limite OpenSky: 10 req/min anon)
+var aircraft={};  // hex → {marker, label, data, lastSeen}
+var ADSB_KEY='01d06a3e-18b7-49ca-933e-ce1dd3a771cb';
+var ADSB_URL='https://airlabs.co/api/v9/flights';
+var ADSB_INTERVAL=30000; // 30s (économie crédits AirLabs)
 
 function toggleADSB(){
   adsbOn=!adsbOn;
   var btn=document.getElementById('btnADSB');
-  btn.style.background=adsbOn?'#1a2a2a':'#1a2533';
+  btn.style.background=adsbOn?'#1a2a2a':'';
+  btn.style.borderColor=adsbOn?'#26c6da':'';
+  btn.style.color=adsbOn?'#26c6da':'';
+  btn.textContent='ADS-B';
   if(adsbOn){
     fetchADSB();
     adsbIv=setInterval(fetchADSB,ADSB_INTERVAL);
@@ -928,77 +947,81 @@ function toggleADSB(){
   }
 }
 
-function makeAircraftIcon(hdg,alt){
-  var col=alt>5000?'#26c6da':alt>2000?'#66bb6a':alt>500?'#ffa726':'#ef5350';
+function makeAircraftIcon(hdg,alt,ground){
+  var col;
+  if(ground) col='#ef5350';
+  else col=alt>5000?'#26c6da':alt>2000?'#66bb6a':alt>500?'#ffa726':'#ef5350';
   var rot=hdg||0;
-  return L.divIcon({className:'',html:'<svg width="20" height="20" viewBox="0 0 20 20" style="transform:rotate('+rot+'deg)"><path d="M10 2L7 10H3l7 7 7-7h-4L10 2z" fill="'+col+'" stroke="#000" stroke-width="0.5" opacity="0.85"/></svg>',iconSize:[20,20],iconAnchor:[10,10]});
+  return L.divIcon({className:'',html:'<svg width="24" height="24" viewBox="0 0 24 24" style="transform:rotate('+rot+'deg);transform-origin:50% 50%"><path d="M22 16.085v-1.543l-9.282-5.758v-6.323c0-1.127-.792-1.95-1.718-1.95-.926 0-1.718.823-1.718 1.95v6.323l-9.282 5.758v1.543l9.282-2.89v5.04l-2.43 1.838v1.427l3.148-1.042 3.148 1.042v-1.427l-2.43-1.838v-5.04l9.282 2.89z" fill="'+col+'" stroke="#222" stroke-width="0.5" opacity="0.9"/></svg>',iconSize:[24,24],iconAnchor:[12,12]});
 }
 
 function fetchADSB(){
-  var lat=myLat,lon=myLon;
-  if(map){var c=map.getCenter();lat=c.lat;lon=c.lng;}
-  var url='https://opensky-network.org/api/states/all'
-    +'?lamin='+(lat-ADSB_RANGE).toFixed(4)
-    +'&lomin='+(lon-ADSB_RANGE).toFixed(4)
-    +'&lamax='+(lat+ADSB_RANGE).toFixed(4)
-    +'&lomax='+(lon+ADSB_RANGE).toFixed(4);
+  if(!map||!mapReady)return;
+  var b=map.getBounds();
+  var bbox=b.getSouth().toFixed(4)+','+b.getWest().toFixed(4)+','+b.getNorth().toFixed(4)+','+b.getEast().toFixed(4);
+  var url=ADSB_URL+'?api_key='+ADSB_KEY+'&bbox='+bbox;
+
+  var btn=document.getElementById('btnADSB');
 
   fetch(url,{signal:AbortSignal.timeout(10000)})
     .then(function(r){
-      if(!r.ok)throw new Error('HTTP '+r.status);
+      if(!r.ok){
+        if(r.status===429){
+          btn.style.background='#ef5350';btn.style.color='#fff';
+          btn.style.borderColor='#ef5350';btn.textContent='ADS-B (429)';
+        }
+        throw new Error('HTTP '+r.status);
+      }
+      btn.style.background='#1a2a2a';btn.style.color='#26c6da';
+      btn.style.borderColor='#26c6da';btn.textContent='ADS-B';
       return r.json();
     })
-    .then(function(d){
-      if(!d||!d.states)return;
+    .then(function(data){
+      if(data.error){console.log('[ADSB] API error: '+data.error.message);return;}
+      var flights=data.response||[];
       var seen={};
-      d.states.forEach(function(s){
-        // s: [0]icao24 [1]callsign [2]origin [3]time_pos [4]last_contact
-        //    [5]lon [6]lat [7]baro_alt [8]on_ground [9]velocity
-        //    [10]true_track [11]vert_rate [12]sensors [13]geo_alt [14]squawk
-        var icao=s[0];
-        if(!icao||s[8])return; // skip ground
-        var aLat=s[6],aLon=s[5];
-        if(aLat===null||aLon===null)return;
-        var call=(s[1]||'').trim()||icao;
-        var alt=s[7]||s[13]||0;
-        var spd=s[9]||0;
-        var hdg=s[10]||0;
-        var vr=s[11]||0;
+
+      flights.forEach(function(f){
+        var icao=f.hex;
+        if(!icao)return;
+        var aLat=f.lat,aLon=f.lng;
+        if(aLat===null||aLon===null||aLat===undefined||aLon===undefined)return;
+        var call=f.flight_icao||f.reg_number||icao;
+        var alt=f.alt||0;
+        var spd=f.speed||0;
+        var hdg=f.dir||0;
+        var ground=(alt<50);
         seen[icao]=true;
 
-        if(!mapReady)return;
         var ac=aircraft[icao];
         if(!ac){
           ac={marker:null,label:null,data:{}};
           aircraft[icao]=ac;
         }
-        ac.data={call:call,lat:aLat,lon:aLon,alt:Math.round(alt),spd:Math.round(spd),hdg:Math.round(hdg),vr:vr};
+        ac.data={call:call,lat:aLat,lon:aLon,alt:Math.round(alt),spd:Math.round(spd),hdg:Math.round(hdg)};
         ac.lastSeen=Date.now();
 
         var ll=[aLat,aLon];
         if(!ac.marker){
-          ac.marker=L.marker(ll,{icon:makeAircraftIcon(hdg,alt),zIndexOffset:-100}).addTo(map);
+          ac.marker=L.marker(ll,{icon:makeAircraftIcon(hdg,alt,ground),zIndexOffset:-100}).addTo(map);
         } else {
           ac.marker.setLatLng(ll);
-          ac.marker.setIcon(makeAircraftIcon(hdg,alt));
+          ac.marker.setIcon(makeAircraftIcon(hdg,alt,ground));
         }
 
         var tip='<b style="color:#26c6da">'+call+'</b><br>'
           +Math.round(alt)+'m (FL'+Math.round(alt*3.28084/100)+')<br>'
-          +Math.round(spd*3.6)+'km/h '+Math.round(hdg)+'&deg;';
-        if(Math.abs(vr)>0.5)tip+='<br>Vz:'+vr.toFixed(1)+'m/s';
-        // Distance à moi
+          +Math.round(spd)+'km/h '+Math.round(hdg)+'&deg;'
+          +(ground?'<br><b style="color:#ef5350">AU SOL</b>':'');
         var dm=distM(aLat,aLon,myLat,myLon);
         tip+='<br><span style="color:'+(dm<2000?'#ef5350':'#778')+'">'+Math.round(dm/100)/10+'km</span>';
         ac.marker.bindTooltip(tip);
 
-        // Label altitude
-        var altTxt='FL'+Math.round(alt*3.28084/100);
+        var altTxt=ground?'GND':'FL'+Math.round(alt*3.28084/100);
         if(!ac.label)ac.label=L.marker(ll,{icon:L.divIcon({className:'ac-label',html:altTxt,iconSize:null,iconAnchor:[-12,8]}),zIndexOffset:-100}).addTo(map);
         else{ac.label.setLatLng(ll);ac.label.setIcon(L.divIcon({className:'ac-label',html:altTxt,iconSize:null,iconAnchor:[-12,8]}));}
       });
 
-      // Purge les avions disparus
       Object.keys(aircraft).forEach(function(icao){
         if(!seen[icao]&&aircraft[icao].lastSeen<Date.now()-60000){
           if(aircraft[icao].marker)map.removeLayer(aircraft[icao].marker);
@@ -1034,13 +1057,21 @@ function showTab(id){
   var names=['connpanel','decode','meteo','drones'];
   var idx=names.indexOf(id);
   if(idx>=0&&btns[idx])btns[idx].classList.add('active');
-  // Toggle meteo si besoin
-  if(id==='meteo'&&!meteoVisible)toggleMeteo();
+  // Centre panel: decode vs meteo (desktop + mobile)
+  if(id==='meteo'){
+    document.getElementById('decode').style.display='none';
+    document.getElementById('meteo').style.display='block';
+    ensureMeteo();
+  } else {
+    document.getElementById('decode').style.display='';
+    document.getElementById('meteo').style.display='none';
+    stopMeteoTimer();
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════
    TX CONFIG — Modal configuration émetteur
-   Envoie la config au board via USB Serial JSON
+   Envoie la config au board via BLE JSON
    ═══════════════════════════════════════════════════════════ */
 var txConfig={
   id:'FRAokesq0o9db0q6-cf8',
@@ -1069,13 +1100,10 @@ function saveTxConfig(){
   txConfig.euCat=parseInt(document.getElementById('txEuCat').value);
   txConfig.euClass=parseInt(document.getElementById('txEuClass').value);
   txConfig.selfDesc=document.getElementById('txDesc').value;
-  // Envoyer au board via USB Serial
+  // Envoyer au board via BLE
   var cmd=JSON.stringify({tx:txConfig});
-  if(port){
-    try{var w=port.writable.getWriter();w.write(new TextEncoder().encode(cmd+'\n'));w.releaseLock();
-      console.log('TX>',cmd);
-    }catch(e){}
-  }
+  bleSend(cmd);
+  console.log('TX>',cmd);
   hideTxConfig();
 }
 </script>
